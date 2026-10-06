@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  EMPLOYEE
+  MANAGER
+}
+
+enum AccountStatus {
+  PENDING
+  ACTIVE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  ON_LEAVE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TaskStatus {
+  DRAFT
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  COMPLETED
+}
+
+enum LeaveType {
+  VACATION
+  SICK
+  PERSONAL
+  EMERGENCY
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AnnouncementPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model User {
+  id           String        @id @default(cuid())
+  employeeId   String        @unique
+  email        String        @unique
+  username     String        @unique
+  passwordHash String
+  role         Role          @default(EMPLOYEE)
+  status       AccountStatus @default(PENDING)
+  lastLoginAt  DateTime?
+  photoUrl     String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  profile           EmployeeProfile?
+  managedDepartment Department?      @relation("DepartmentManager")
+
+  attendanceRecords AttendanceRecord[]
+  assignedTasks     Task[]             @relation("TaskAssignee")
+  createdTasks      Task[]             @relation("TaskCreator")
+  leaveBalances     LeaveBalance[]
+  leaveRequests     LeaveRequest[]     @relation("LeaveRequester")
+  decidedLeaves     LeaveRequest[]     @relation("LeaveDecider")
+  announcementReads AnnouncementRead[]
+  notifications     Notification[]
+  passwordTokens    PasswordToken[]
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  managerId String?  @unique
+  manager   User?    @relation("DepartmentManager", fields: [managerId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employees EmployeeProfile[]
+}
+
+model EmployeeProfile {
+  id                 String     @id @default(cuid())
+  userId             String     @unique
+  user               User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName          String
+  lastName           String
+  phone              String?
+  address            String?
+  gender             String?
+  birthday           DateTime?
+  civilStatus        String?
+  emergencyContact   String?
+  position           String
+  employmentType     String     @default("Full-Time")
+  dateHired          DateTime   @default(now())
+  workLocation       String     @default("Headquarters")
+  skills             String?    // Comma-separated or JSON
+  departmentId       String
+  department         Department @relation(fields: [departmentId], references: [id])
+  reportingManagerId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AttendanceRecord {
+  id           String           @id @default(cuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date         DateTime         @db.Date
+  timeIn       DateTime?
+  timeOut      DateTime?
+  totalMinutes Int?
+  status       AttendanceStatus @default(PRESENT)
+  remarks      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+}
+
+model Task {
+  id             String       @id @default(cuid())
+  title          String
+  description    String
+  category       String
+  dueDate        DateTime
+  priority       TaskPriority @default(MEDIUM)
+  status         TaskStatus   @default(TODO)
+  progress       Int          @default(0)
+  estimatedHours Int?
+  assigneeId     String
+  assignee       User         @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdById    String
+  creator        User         @relation("TaskCreator", fields: [createdById], references: [id])
+
+  submissions TaskSubmission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TaskSubmission {
+  id            String    @id @default(cuid())
+  taskId        String
+  task          Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fileUrl       String?
+  fileName      String?
+  comment       String?
+  reviewStatus  String?   // APPROVED, REJECTED
+  reviewComment String?
+  submittedAt   DateTime  @default(now())
+}
+
+model LeaveBalance {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type             LeaveType
+  yearlyAllowance  Int
+  used             Int       @default(0)
+  year             Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, type, year])
+}
+
+model LeaveRequest {
+  id             String      @id @default(cuid())
+  applicationId  String      @unique // e.g. LR-2026-001
+  userId         String
+  user           User        @relation("LeaveRequester", fields: [userId], references: [id], onDelete: Cascade)
+  type           LeaveType
+  startDate      DateTime    @db.Date
+  endDate        DateTime    @db.Date
+  totalDays      Int
+  reason         String
+  attachmentUrl  String?
+  relieverId     String?
+  status         LeaveStatus @default(PENDING)
+  decidedById    String?
+  decider        User?       @relation("LeaveDecider", fields: [decidedById], references: [id])
+  decidedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Announcement {
+  id              String               @id @default(cuid())
+  title           String
+  category        String               @default("Company")
+  priority        AnnouncementPriority @default(MEDIUM)
+  body            String
+  audience        String               @default("Entire Company")
+  pinned          Boolean              @default(false)
+  notifyInstantly Boolean              @default(true)
+  status          AnnouncementStatus   @default(PUBLISHED)
+  attachmentUrl   String?
+  department      String?
+
+  reads AnnouncementRead[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AnnouncementRead {
+  id             String       @id @default(cuid())
+  announcementId String
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now())
+
+  @@unique([announcementId, userId])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  message   String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model PasswordToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  purpose   String   // ACTIVATE, RESET
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
